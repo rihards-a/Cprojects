@@ -79,9 +79,8 @@ void ht_destroy(ht* table) {
 // https://en.wikipedia.org/wiki/Fowler–Noll–Vo_hash_function
 static uint64_t hash_key(const char* key) {
     uint64_t hash = FNV_OFFSET;
-    size_t len = strlen(key); // modified to use strlen because md5 can contain null bytes
-    for (size_t i = 0; i < len; i++) {
-        hash ^= (uint64_t)(unsigned char)key[i];
+    for (const char* p = key; *p; p++) {
+        hash ^= (uint64_t)(unsigned char)(*p);
         hash *= FNV_PRIME;
     }
     return hash;
@@ -293,8 +292,6 @@ void recurse_dir(const char* dirpath)
             goto cont;
         }
 
-        // printf("testing %s\n", CPATH); // for debugging
-
         if (S_ISDIR(st.st_mode)) {
             recurse_dir(CPATH);
         } else {
@@ -304,7 +301,6 @@ void recurse_dir(const char* dirpath)
                     printf("Kļūda: nevar atvērt failu '%s' MD5 aprēķinam.\n", CPATH);
                     goto cont;
                 }
-
                 EVP_MD_CTX* ctx = EVP_MD_CTX_new();
                 if (!ctx) {
                     printf("Kļūda veidojot EVP (\"EnVeloPe\" OpenSSL bibliotēka) kontekstu.\n");
@@ -314,7 +310,6 @@ void recurse_dir(const char* dirpath)
                     printf("Kļūda inicializējot EVP kontekstu MD5 aprēķinam.\n");
                     goto cont;
                 }
-
                 unsigned char buffer[8192];
                 size_t bytes;
                 while ((bytes = fread(buffer, 1, sizeof(buffer), file)) > 0) {
@@ -323,19 +318,16 @@ void recurse_dir(const char* dirpath)
                         goto cont;
                     }
                 }
-
                 unsigned char digest[EVP_MAX_MD_SIZE];
                 unsigned int digest_len;
-            
                 if (EVP_DigestFinal_ex(ctx, digest, &digest_len) != 1) {
                     printf("Kļūda aprēķinot pēdējo MD5 summu.\n");
                     goto cont;
                 }
-
                 EVP_MD_CTX_free(ctx);
                 fclose(file);
 
-                char hex[EVP_MAX_MD_SIZE * 2 + 1];
+                char hex[EVP_MAX_MD_SIZE * 2 + 1]; // change digest to hex to fix null-byte issues
                 for (unsigned int i = 0; i < digest_len; i++) {
                     sprintf(hex + i * 2, "%02x", digest[i]);
                 }
@@ -343,13 +335,13 @@ void recurse_dir(const char* dirpath)
                 if (CHECK_DATE) { // if -d -m flags - compute hash of full content (including name and date)
                     time_t mtime = st.st_mtime;
                     struct tm *tm_info = localtime(&mtime);
-                    char buf[20]; // "yyyy-mm-dd hh:mm"
+                    char buf[20];
                     strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M", tm_info);
                     char combined[PATH_MAX + 20 + EVP_MAX_MD_SIZE * 2 + 100]; // path_name + date + md5 + enough for file size
                     snprintf(combined, sizeof(combined), "%s %d %s %s", buf, (int)st.st_size, name, hex);
                     update_key_ll((const char*)combined, combined);
                 } else { // if -m flag - compute hash of content only (no name and date)
-                    update_key_ll((const char*)digest, (const char*)hex);
+                    update_key_ll((const char*)hex, (const char*)hex);
                 }
             } else {
                 if (CHECK_DATE) { // if -d flag - compute hash of name+size+date
@@ -408,7 +400,7 @@ int main(int argc, char **argv)
     }
 
     const char* dirarg = "./";
-    struct stat st; // Stat struct for checking file types
+    struct stat st;
 
     if (stat(dirarg, &st) == -1 || !S_ISDIR(st.st_mode)) {
         printf("Kļūda: '%s' nav derīga direktorija.\n", dirarg);
@@ -424,7 +416,7 @@ int main(int argc, char **argv)
     while (ht_next(&it)) {
         path_ll* ll = it.value;
         if (ll && ll->next && ll->next->next) { // only print if there are duplicates
-            printf("=== %s\n",  ll->path); // for debugging, print the hash and itilial info
+            printf("=== %s\n",  ll->path);
             for (path_ll* cur = ll->next; cur; cur = cur->next) {
                 printf("%s\n", cur->path+2);
             }
